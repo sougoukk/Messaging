@@ -101,7 +101,7 @@ public class ContactRecipientAutoCompleteView extends RecipientEditTextView {
     private static final String TEXT_HEIGHT_SAMPLE = "a";
 
     public ContactRecipientAutoCompleteView(final Context context, final AttributeSet attrs) {
-        super(new ContextThemeWrapper(context, com.android.messaging.R.style.ColorAccentGrayOverrideStyle), attrs);
+        super(new ContextThemeWrapper(context, R.style.ColorAccentGrayOverrideStyle), attrs);
 
         // Get the height of the text, given the currently set font face and size.
         final Rect textBounds = new Rect(0, 0, 0, 0);

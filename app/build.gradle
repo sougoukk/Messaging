@@ -1,13 +1,13 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 23
+    compileSdkVersion 25
     defaultConfig {
         applicationId "aos.andro.messaging"
         minSdkVersion 19
-        targetSdkVersion 23
+        targetSdkVersion 25
         versionCode 1
-        versionName "6.0.1_r81"
+        versionName "7.1.2_r36"
 
         externalNativeBuild {
             cmake {

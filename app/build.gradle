@@ -1,0 +1,46 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 23
+    defaultConfig {
+        applicationId "aos.andro.messaging"
+        minSdkVersion 19
+        targetSdkVersion 23
+        versionCode 1
+        versionName "6.0.1_r81"
+
+        externalNativeBuild {
+            cmake {
+                cFlags "-Wall"
+                cppFlags ""
+            }
+        }
+    }
+    buildTypes {
+
+    }
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
+    }
+}
+
+dependencies {
+    implementation project(':common')
+    implementation project(':commonframesequence')
+    implementation 'com.android.support:support-v4:23.4.0'
+    implementation 'com.android.support:appcompat-v7:23.4.0'
+    implementation 'com.android.support:palette-v7:23.4.0'
+    implementation 'com.android.support:recyclerview-v7:23.4.0'
+    implementation 'com.android.support:support-v13:23.4.0'
+    implementation project(':vcard')
+    api 'com.google.guava:guava:27.0.1-android'
+    implementation project(':chips')
+    implementation project(':photoviewer')
+    api 'com.googlecode.libphonenumber:libphonenumber:8.10.6'
+    api 'com.googlecode.libphonenumber:geocoder:2.112'
+    api 'com.googlecode.libphonenumber:prefixmapper:2.112'
+    api 'com.googlecode.libphonenumber:carrier:1.102'
+    implementation project(':colorpicker')
+}

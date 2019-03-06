@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--  Copyright (C) 2011 The Android Open Source Project
+<!-- 
+     Copyright (C) 2012 Google Inc.
+     Licensed to The Android Open Source Project.
 
      Licensed under the Apache License, Version 2.0 (the "License");
      you may not use this file except in compliance with the License.
@@ -16,8 +18,8 @@
 
 <resources xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
-    <string name="more_string" msgid="8495478259330621990">"+<xliff:g id="COUNT">%1$d</xliff:g>"</string>
-    <string name="copy_email" msgid="7869435992461603532">"மின்னஞ்சல் முகவரியை நகலெடு"</string>
-    <string name="copy_number" msgid="530057841276106843">"மொபைல் எண்ணை நகலெடு"</string>
-    <string name="done" msgid="2356320650733788862">"திரும்பு"</string>
+    <string name="photo_view_count" msgid="3466690572899800275">"<xliff:g id="CURRENT_POS">%d</xliff:g> з <xliff:g id="COUNT">%d</xliff:g>"</string>
+    <string name="retry" msgid="3319517143224679074">"Паўтарыць спробу"</string>
+    <string name="failed" msgid="1458877219699376279">"Не атрымалася загрузіць выяву"</string>
+    <string name="titles" msgid="8072357561981153438">"<xliff:g id="TITLE_0">%s</xliff:g>, <xliff:g id="SUBTITLE">%s</xliff:g>"</string>
 </resources>

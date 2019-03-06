@@ -18,13 +18,14 @@
 package com.android.ex.chips;
 
 import android.annotation.TargetApi;
-import android.app.Dialog;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.DialogFragment;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.DialogInterface;
-import android.content.DialogInterface.OnDismissListener;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
@@ -44,6 +45,7 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.StateListDrawable;
 import android.os.AsyncTask;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -74,7 +76,6 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.View.OnClickListener;
 import android.view.ViewParent;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
@@ -82,7 +83,6 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
-import android.widget.Button;
 import android.widget.Filterable;
 import android.widget.ListAdapter;
 import android.widget.ListPopupWindow;
@@ -92,6 +92,7 @@ import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.android.ex.chips.DropdownChipLayouter.PermissionRequestDismissedListener;
 import com.android.ex.chips.RecipientAlternatesAdapter.RecipientMatchCallback;
 import com.android.ex.chips.recipientchip.DrawableRecipientChip;
 import com.android.ex.chips.recipientchip.InvisibleRecipientChip;
@@ -102,11 +103,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * RecipientEditTextView is an auto complete text view for use with applications
@@ -114,8 +114,8 @@ import java.util.regex.Pattern;
  */
 public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         OnItemClickListener, Callback, RecipientAlternatesAdapter.OnCheckedItemChangedListener,
-        GestureDetector.OnGestureListener, OnDismissListener, OnClickListener,
-        TextView.OnEditorActionListener, DropdownChipLayouter.ChipDeleteListener {
+        GestureDetector.OnGestureListener, TextView.OnEditorActionListener,
+        DropdownChipLayouter.ChipDeleteListener, PermissionRequestDismissedListener {
     private static final String TAG = "RecipientEditTextView";
 
     private static final char COMMIT_CHAR_COMMA = ',';
@@ -123,14 +123,6 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     private static final char COMMIT_CHAR_SPACE = ' ';
     private static final String SEPARATOR = String.valueOf(COMMIT_CHAR_COMMA)
             + String.valueOf(COMMIT_CHAR_SPACE);
-
-    // This pattern comes from android.util.Patterns. It has been tweaked to handle a "1" before
-    // parens, so numbers such as "1 (425) 222-2342" match.
-    private static final Pattern PHONE_PATTERN
-            = Pattern.compile(                                  // sdd = space, dot, or dash
-            "(\\+[0-9]+[\\- \\.]*)?"                    // +<digits><sdd>*
-                    + "(1?[ ]*\\([0-9]+\\)[\\- \\.]*)?"         // 1(<digits>)<sdd>*
-                    + "([0-9][0-9\\- \\.][0-9\\- \\.]+[0-9])"); // <digit><digit|sdd>+<digit>
 
     private static final int DISMISS = "dismiss".hashCode();
     private static final long DISMISS_DELAY = 300;
@@ -140,10 +132,10 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     /*package*/ static final int CHIP_LIMIT = 2;
 
     private static final int MAX_CHIPS_PARSED = 50;
+    public static final String STATE_TEXT_VIEW = "savedTextView";
+    public static final String STATE_CURRENT_WARNING_TEXT = "savedCurrentWarningText";
 
-    private int mSelectedChipTextColor;
     private int mUnselectedChipTextColor;
-    private int mSelectedChipBackgroundColor;
     private int mUnselectedChipBackgroundColor;
 
     // Work variables to avoid re-allocation on every typed character.
@@ -164,6 +156,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     private final int mTextHeight;
     private boolean mDisableDelete;
     private int mMaxLines;
+    private int mWarningIconHeight;
 
     /**
      * Enumerator for avatar position. See attr.xml for more details.
@@ -179,7 +172,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     private Validator mValidator;
     private Handler mHandler;
     private TextWatcher mTextWatcher;
-    private DropdownChipLayouter mDropdownChipLayouter;
+    protected DropdownChipLayouter mDropdownChipLayouter;
 
     private View mDropdownAnchor = this;
     private ListPopupWindow mAlternatesPopup;
@@ -189,6 +182,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
 
     private DrawableRecipientChip mSelectedChip;
     private Bitmap mDefaultContactPhoto;
+    private Bitmap mWarningIcon;
     private ReplacementDrawableSpan mMoreChip;
     private TextView mMoreItem;
 
@@ -199,19 +193,17 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
 
     private int mPendingChipsCount = 0;
     private int mCheckedItem;
-    private boolean mNoChips = false;
+    private boolean mNoChipMode = false;
     private boolean mShouldShrink = true;
     private boolean mRequiresShrinkWhenNotGone = false;
 
     // VisibleForTesting
     ArrayList<DrawableRecipientChip> mTemporaryRecipients;
 
-    private ArrayList<DrawableRecipientChip> mRemovedSpans;
+    private ArrayList<DrawableRecipientChip> mHiddenSpans;
 
     // Chip copy fields.
     private GestureDetector mGestureDetector;
-    private Dialog mCopyDialog;
-    private String mCopyAddress;
 
     // Obtain the enclosing scroll view, if it exists, so that the view can be
     // scrolled to show the last line of chips content.
@@ -253,6 +245,40 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
 
     private RecipientEntryItemClickedListener mRecipientEntryItemClickedListener;
 
+    private RecipientChipAddedListener mRecipientChipAddedListener;
+    private RecipientChipDeletedListener mRecipientChipDeletedListener;
+
+    // A set of recipient addresses that are untrusted because they are outside of the user's
+    // domain. We will show a warning for these addresses in the recipient chips.
+    private Set<String> mUntrustedAddresses = new HashSet<>();
+
+    private String mWarningTextTemplate = "";
+    private String mWarningTitle = "";
+    // Text of the warning dialog currently being displayed. Empty if no dialog currently displayed.
+    private String mCurrentWarningText = "";
+
+    /**
+     * Sets this recipient edit text view to display warning icons in chips for the given addresses.
+     *
+     * @param untrustedAddresses The addresses to display warning icons for.
+     * @param warningIcon The icon to show for each address.
+     * @param warningIconHeight Height of the warning icon in
+     * @param warningTextTemplate Text to display when warning icon is clicked.
+     * @param warningTitle Title to display for text when warning icon is clicked.
+     */
+    public void setUntrustedAddressWarning(
+            Set<String> untrustedAddresses,
+            Bitmap warningIcon,
+            int warningIconHeight,
+            String warningTextTemplate,
+            String warningTitle) {
+        mUntrustedAddresses = untrustedAddresses;
+        mWarningIcon = warningIcon;
+        mWarningIconHeight = warningIconHeight;
+        mWarningTextTemplate = warningTextTemplate;
+        mWarningTitle = warningTitle;
+    }
+
     public interface RecipientEntryItemClickedListener {
         /**
          * Callback that occurs whenever an auto-complete suggestion is clicked.
@@ -263,6 +289,52 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         void onRecipientEntryItemClicked(int charactersTyped, int position);
     }
 
+    private PermissionsRequestItemClickedListener mPermissionsRequestItemClickedListener;
+
+    /**
+     * Listener for handling clicks on the {@link RecipientEntry} that have
+     * {@link RecipientEntry#ENTRY_TYPE_PERMISSION_REQUEST} type.
+     */
+    public interface PermissionsRequestItemClickedListener {
+
+        /**
+         * Callback that occurs when user clicks the item that asks user to grant permissions to
+         * the app.
+         *
+         * @param view View that asks for permission.
+         */
+        void onPermissionsRequestItemClicked(RecipientEditTextView view, String[] permissions);
+
+        /**
+         * Callback that occurs when user dismisses the item that asks user to grant permissions to
+         * the app.
+         */
+        void onPermissionRequestDismissed();
+    }
+
+    /**
+     * Listener for handling deletion of chips in the recipient edit text.
+     */
+    public interface RecipientChipDeletedListener {
+        /**
+         * Callback that occurs when a chip is deleted.
+         * @param entry RecipientEntry that contains information about the chip.
+         */
+        void onRecipientChipDeleted(RecipientEntry entry);
+    }
+
+    /**
+     * Listener for handling addition of chips in the recipient edit text.
+     */
+    public interface RecipientChipAddedListener {
+        /**
+         * Callback that occurs when a chip is added.
+         *
+         * @param entry RecipientEntry that contains information about the chip.
+         */
+        void onRecipientChipAdded(RecipientEntry entry);
+    }
+
     public RecipientEditTextView(Context context, AttributeSet attrs) {
         super(context, attrs);
         setChipDimensions(context, attrs);
@@ -271,7 +343,6 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         setupPopupWindow(mAlternatesPopup);
         mAddressPopup = new ListPopupWindow(context);
         setupPopupWindow(mAddressPopup);
-        mCopyDialog = new Dialog(context);
         mAlternatesListener = new OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> adapterView,View view, int position,
@@ -332,10 +403,24 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     public void setDropdownChipLayouter(DropdownChipLayouter dropdownChipLayouter) {
         mDropdownChipLayouter = dropdownChipLayouter;
         mDropdownChipLayouter.setDeleteListener(this);
+        mDropdownChipLayouter.setPermissionRequestDismissedListener(this);
     }
 
     public void setRecipientEntryItemClickedListener(RecipientEntryItemClickedListener listener) {
         mRecipientEntryItemClickedListener = listener;
+    }
+
+    public void setPermissionsRequestItemClickedListener(
+            PermissionsRequestItemClickedListener listener) {
+        mPermissionsRequestItemClickedListener = listener;
+    }
+
+    public void setRecipientChipAddedListener(RecipientChipAddedListener listener) {
+        mRecipientChipAddedListener = listener;
+    }
+
+    public void setRecipientChipDeletedListener(RecipientChipDeletedListener listener) {
+        mRecipientChipDeletedListener = listener;
     }
 
     @Override
@@ -372,8 +457,10 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
             if (mSelectedChip != null) {
                 clearSelectedChip();
                 return true;
-            } else if (focusNext()) {
-                return true;
+            } else if (hasFocus()) {
+                if (focusNext()) {
+                    return true;
+                }
             }
         }
         return false;
@@ -429,6 +516,22 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         return results;
     }
 
+    /**
+     * @return The list of {@link RecipientEntry}s that have been selected by the user and also
+     *         hidden due to {@link #mMoreChip} span.
+     */
+    public List<RecipientEntry> getAllRecipients() {
+        List<RecipientEntry> results = getSelectedRecipients();
+
+        if (mHiddenSpans != null) {
+            for (DrawableRecipientChip chip : mHiddenSpans) {
+                results.add(chip.getEntry());
+            }
+        }
+
+        return results;
+    }
+
     @Override
     public void onSelectionChanged(int start, int end) {
         // When selection changes, see if it is inside the chips area.
@@ -444,10 +547,17 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
 
     @Override
     public void onRestoreInstanceState(Parcelable state) {
+        Bundle savedInstanceState = (Bundle) state;
         if (!TextUtils.isEmpty(getText())) {
             super.onRestoreInstanceState(null);
         } else {
-            super.onRestoreInstanceState(state);
+            super.onRestoreInstanceState(
+                    savedInstanceState.getParcelable(STATE_TEXT_VIEW));
+        }
+        String savedWarningText = savedInstanceState.getString(
+            STATE_CURRENT_WARNING_TEXT);
+        if (!savedWarningText.isEmpty()) {
+            showWarningDialog(savedWarningText);
         }
     }
 
@@ -455,7 +565,10 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     public Parcelable onSaveInstanceState() {
         // If the user changes orientation while they are editing, just roll back the selection.
         clearSelectedChip();
-        return super.onSaveInstanceState();
+        Bundle savedInstanceState = new Bundle();
+        savedInstanceState.putParcelable(STATE_TEXT_VIEW, super.onSaveInstanceState());
+        savedInstanceState.putString(STATE_CURRENT_WARNING_TEXT, mCurrentWarningText);
+        return savedInstanceState;
     }
 
     /**
@@ -511,6 +624,8 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         baseAdapter.registerUpdateObserver(new BaseRecipientAdapter.EntriesUpdatedObserver() {
             @Override
             public void onChanged(List<RecipientEntry> entries) {
+                int suggestionCount = entries == null ? 0 : entries.size();
+
                 // Scroll the chips field to the top of the screen so
                 // that the user can see as many results as possible.
                 if (entries != null && entries.size() > 0) {
@@ -519,21 +634,48 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
                     // the count at the bottom of this function.
                     if (mCurrentSuggestionCount == 0) {
                         // Announce the new number of possible choices for accessibility.
-                        announceForAccessibilityCompat(getContext().getString(
-                                R.string.accessbility_suggestion_dropdown_opened));
+                        announceForAccessibilityCompat(
+                                getSuggestionDropdownOpenedVerbalization(suggestionCount));
                     }
                 }
 
-                // Set the dropdown height to be the remaining height from the anchor to the bottom.
-                mDropdownAnchor.getLocationInWindow(mCoords);
-                getWindowVisibleDisplayFrame(mRect);
-                setDropDownHeight(mRect.bottom - mCoords[1] - mDropdownAnchor.getHeight() -
-                    getDropDownVerticalOffset());
+                // Is the dropdown closing?
+                if ((entries == null || entries.size() == 0)
+                        // Here the current suggestion count is still the old one since we update
+                        // the count at the bottom of this function.
+                        && mCurrentSuggestionCount != 0
+                        // If there is no text, there's no need to know if no suggestions are
+                        // available.
+                        && getText().length() > 0) {
+                    announceForAccessibilityCompat(getResources().getString(
+                            R.string.accessbility_suggestion_dropdown_closed));
+                }
 
-                mCurrentSuggestionCount = entries == null ? 0 : entries.size();
+                if ((entries != null)
+                        && (entries.size() == 1)
+                        && (entries.get(0).getEntryType() ==
+                                RecipientEntry.ENTRY_TYPE_PERMISSION_REQUEST)) {
+                    // Do nothing; showing a single permissions entry. Resizing not required.
+                } else {
+                    // Set the dropdown height to be the remaining height from the anchor to the
+                    // bottom.
+                    mDropdownAnchor.getLocationOnScreen(mCoords);
+                    getWindowVisibleDisplayFrame(mRect);
+                    setDropDownHeight(mRect.bottom - mCoords[1] - mDropdownAnchor.getHeight() -
+                            getDropDownVerticalOffset());
+                }
+
+                mCurrentSuggestionCount = suggestionCount;
             }
         });
         baseAdapter.setDropdownChipLayouter(mDropdownChipLayouter);
+    }
+
+    /**
+     * Return the accessibility verbalization when the suggestion dropdown is opened.
+     */
+    public String getSuggestionDropdownOpenedVerbalization(int suggestionCount) {
+        return getResources().getString(R.string.accessbility_suggestion_dropdown_opened);
     }
 
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
@@ -669,7 +811,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
      * @param contact The recipient entry to pull data from.
      * @param paint The paint to use to draw the bitmap.
      */
-    private Bitmap createChipBitmap(RecipientEntry contact, TextPaint paint) {
+    private ChipBitmapContainer createChipBitmap(RecipientEntry contact, TextPaint paint) {
         paint.setColor(getDefaultChipTextColor(contact));
         ChipBitmapContainer bitmapContainer = createChipBitmap(contact, paint,
                 getChipBackground(contact), getDefaultChipBackgroundColor(contact));
@@ -677,12 +819,21 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         if (bitmapContainer.loadIcon) {
             loadAvatarIcon(contact, bitmapContainer);
         }
-        return bitmapContainer.bitmap;
+        return bitmapContainer;
     }
 
     private ChipBitmapContainer createChipBitmap(RecipientEntry contact, TextPaint paint,
             Drawable overrideBackgroundDrawable, int backgroundColor) {
         final ChipBitmapContainer result = new ChipBitmapContainer();
+
+        Drawable indicatorIcon = null;
+        int indicatorPadding = 0;
+        if (contact.getIndicatorIconId() != 0) {
+            indicatorIcon = getContext().getDrawable(contact.getIndicatorIconId());
+            indicatorIcon.setBounds(0, 0,
+                    indicatorIcon.getIntrinsicWidth(), indicatorIcon.getIntrinsicHeight());
+            indicatorPadding = indicatorIcon.getBounds().width() + mChipTextEndPadding;
+        }
 
         Rect backgroundPadding = new Rect();
         if (overrideBackgroundDrawable != null) {
@@ -694,22 +845,44 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         // on the sides.
         int height = (int) mChipHeight;
         // Since the icon is a square, it's width is equal to the maximum height it can be inside
-        // the chip. Don't include iconWidth for invalid contacts.
-        int iconWidth = contact.isValid() ?
+        // the chip. Don't include iconWidth for invalid contacts and when not displaying photos.
+        boolean displayIcon = contact.isValid() && contact.shouldDisplayIcon();
+        int iconWidth = displayIcon ?
                 height - backgroundPadding.top - backgroundPadding.bottom : 0;
+
+        final boolean shouldDisplayWarningIcon = mUntrustedAddresses.contains(
+                contact.getDestination());
+        final float warningIconWidth = shouldDisplayWarningIcon ? mWarningIconHeight : 0;
+        final float warningIconTopMargin = (mChipHeight - mWarningIconHeight) / 2f;
+        final float warningIconEndMargin = shouldDisplayWarningIcon ? mChipTextEndPadding : 0;
+
         float[] widths = new float[1];
         paint.getTextWidths(" ", widths);
         CharSequence ellipsizedText = ellipsizeText(createChipDisplayText(contact), paint,
-                calculateAvailableWidth() - iconWidth - widths[0] - backgroundPadding.left
-                - backgroundPadding.right);
+                calculateAvailableWidth()
+                    - iconWidth
+                    - warningIconWidth
+                    - warningIconEndMargin
+                    - widths[0]
+                    - backgroundPadding.left
+                    - backgroundPadding.right
+                    - indicatorPadding);
         int textWidth = (int) paint.measureText(ellipsizedText, 0, ellipsizedText.length());
 
         // Chip start padding is the same as the end padding if there is no contact image.
-        final int startPadding = contact.isValid() ? mChipTextStartPadding : mChipTextEndPadding;
+        final int startPadding = displayIcon ? mChipTextStartPadding : mChipTextEndPadding;
         // Make sure there is a minimum chip width so the user can ALWAYS
         // tap a chip without difficulty.
-        int width = Math.max(iconWidth * 2, textWidth + startPadding + mChipTextEndPadding
-                + iconWidth + backgroundPadding.left + backgroundPadding.right);
+        int width = Math.max(iconWidth * 2,
+                textWidth
+                    + startPadding
+                    + mChipTextEndPadding
+                    + iconWidth
+                    + (int) warningIconWidth
+                    + (int) warningIconEndMargin
+                    + backgroundPadding.left
+                    + backgroundPadding.right
+                    + indicatorPadding);
 
         // Create the background of the chip.
         result.bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
@@ -730,18 +903,50 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
 
         // Draw the text vertically aligned
         int textX = shouldPositionAvatarOnRight() ?
-                mChipTextEndPadding + backgroundPadding.left :
-                width - backgroundPadding.right - mChipTextEndPadding - textWidth;
+                mChipTextEndPadding
+                    + backgroundPadding.left
+                    + indicatorPadding
+                    + (int) warningIconWidth
+                    + (int) warningIconEndMargin :
+                width
+                    - backgroundPadding.right
+                    - mChipTextEndPadding
+                    - textWidth
+                    - indicatorPadding
+                    - (int) warningIconWidth
+                    - (int) warningIconEndMargin;
         canvas.drawText(ellipsizedText, 0, ellipsizedText.length(),
                 textX, getTextYOffset(height), paint);
 
+        if (indicatorIcon != null) {
+            int indicatorX = shouldPositionAvatarOnRight()
+                ? backgroundPadding.left + mChipTextEndPadding
+                : width - backgroundPadding.right - indicatorIcon.getBounds().width()
+                        - mChipTextEndPadding;
+            int indicatorY = height / 2 - indicatorIcon.getBounds().height() / 2;
+            indicatorIcon.getBounds().offsetTo(indicatorX, indicatorY);
+            indicatorIcon.draw(canvas);
+        }
+
         // Set the variables that are needed to draw the icon bitmap once it's loaded
-        int iconX = shouldPositionAvatarOnRight() ? width - backgroundPadding.right - iconWidth :
+        final int iconX = shouldPositionAvatarOnRight() ?
+                width - backgroundPadding.right - iconWidth :
                 backgroundPadding.left;
         result.left = iconX;
         result.top = backgroundPadding.top;
         result.right = iconX + iconWidth;
         result.bottom = height - backgroundPadding.bottom;
+        result.loadIcon = displayIcon;
+
+        // Set the variables needed to draw the warning icon bitmap once it's loaded.
+        final float warningIconX = shouldPositionAvatarOnRight() ?
+                backgroundPadding.left + warningIconEndMargin :
+                width - backgroundPadding.right - warningIconWidth - warningIconEndMargin;
+        final float warningIconY = warningIconTopMargin;
+        result.warningIconLeft = warningIconX;
+        result.warningIconTop = warningIconY;
+        result.warningIconRight = warningIconX + warningIconWidth;
+        result.warningIconBottom = warningIconY + mWarningIconHeight;
 
         return result;
     }
@@ -750,11 +955,29 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
      * Helper function that draws the loaded icon bitmap into the chips bitmap
      */
     private void drawIcon(ChipBitmapContainer bitMapResult, Bitmap icon) {
+        if (icon == null) {
+            return;
+        }
         final Canvas canvas = new Canvas(bitMapResult.bitmap);
         final RectF src = new RectF(0, 0, icon.getWidth(), icon.getHeight());
         final RectF dst = new RectF(bitMapResult.left, bitMapResult.top, bitMapResult.right,
                 bitMapResult.bottom);
-        drawIconOnCanvas(icon, canvas, src, dst);
+        drawCircularIconOnCanvas(icon, canvas, src, dst);
+    }
+
+    /**
+     * Draws the warning icon onto the chip's bitmap and returns the rectangle it drew on.
+     */
+    private RectF drawWarningIcon(ChipBitmapContainer bitMapResult) {
+        if (mWarningIcon == null) {
+            return new RectF(0, 0, 0, 0);
+        }
+        final Canvas canvas = new Canvas(bitMapResult.bitmap);
+        final RectF src = new RectF(0, 0, mWarningIcon.getWidth(), mWarningIcon.getHeight());
+        final RectF dst = new RectF(bitMapResult.warningIconLeft, bitMapResult.warningIconTop,
+                bitMapResult.warningIconRight, bitMapResult.warningIconBottom);
+        drawRectanglularIconOnCanvas(mWarningIcon, canvas, src, dst);
+        return dst;
     }
 
     /**
@@ -866,8 +1089,42 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     /**
      * Draws the icon onto the canvas given the source rectangle of the bitmap and the destination
      * rectangle of the canvas.
+     *
+     * <p>The icon is drawn as a circle.
      */
-    protected void drawIconOnCanvas(Bitmap icon, Canvas canvas, RectF src, RectF dst) {
+    protected void drawCircularIconOnCanvas(Bitmap icon, Canvas canvas, RectF src, RectF dst) {
+        setWorkPaintForIcon(icon, src, dst);
+        canvas.drawCircle(dst.centerX(), dst.centerY(), dst.width() / 2f, mWorkPaint);
+
+        final float borderWidth = 1f;
+        setWorkPaintForBorder(borderWidth);
+        canvas.drawCircle(dst.centerX(), dst.centerY(), dst.width() / 2f - borderWidth / 2,
+                mWorkPaint);
+
+        mWorkPaint.reset();
+    }
+
+    /**
+     * Draws the icon onto the canvas given the source rectangle of the bitmap and the destination
+     * rectangle of the canvas.
+     *
+     * <p>The icon is drawn as a rectangle.
+     */
+    private void drawRectanglularIconOnCanvas(Bitmap icon, Canvas canvas, RectF src, RectF dst) {
+        setWorkPaintForIcon(icon, src, dst);
+        canvas.drawRect(dst, mWorkPaint);
+
+        final float borderWidth = 1f;
+        setWorkPaintForBorder(borderWidth);
+        canvas.drawRect(dst, mWorkPaint);
+
+        mWorkPaint.reset();
+    }
+
+    /**
+     * Sets WorkPaint for drawing the icon from src onto dst.
+     */
+    private void setWorkPaintForIcon(Bitmap icon, RectF src, RectF dst) {
         final Matrix matrix = new Matrix();
 
         // Draw bitmap through shader first.
@@ -883,19 +1140,17 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         mWorkPaint.setAntiAlias(true);
         mWorkPaint.setFilterBitmap(true);
         mWorkPaint.setDither(true);
-        canvas.drawCircle(dst.centerX(), dst.centerY(), dst.width() / 2f, mWorkPaint);
+    }
 
-        // Then draw the border.
-        final float borderWidth = 1f;
+    /**
+     * Sets WorkPaint for drawing the icon border with the given width.
+     */
+    private void setWorkPaintForBorder(float borderWidth) {
         mWorkPaint.reset();
         mWorkPaint.setColor(Color.TRANSPARENT);
         mWorkPaint.setStyle(Style.STROKE);
         mWorkPaint.setStrokeWidth(borderWidth);
         mWorkPaint.setAntiAlias(true);
-        canvas.drawCircle(dst.centerX(), dst.centerY(), dst.width() / 2f - borderWidth / 2,
-                mWorkPaint);
-
-        mWorkPaint.reset();
     }
 
     private DrawableRecipientChip constructChipSpan(RecipientEntry contact) {
@@ -903,31 +1158,27 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         float defaultSize = paint.getTextSize();
         int defaultColor = paint.getColor();
 
-        Bitmap tmpBitmap = createChipBitmap(contact, paint);
+        ChipBitmapContainer bitmapContainer = createChipBitmap(contact, paint);
+        final Rect warningIconBounds = new Rect(0, 0, 0, 0);
+        if (mUntrustedAddresses.contains(contact.getDestination())) {
+            drawWarningIcon(bitmapContainer).round(warningIconBounds);
+        }
+        final Bitmap tmpBitmap = bitmapContainer.bitmap;
 
         // Pass the full text, un-ellipsized, to the chip.
+        final int iconWidth = tmpBitmap != null ? tmpBitmap.getWidth() : 0;
+        final int iconHeight = tmpBitmap != null ? tmpBitmap.getHeight() : 0;
         Drawable result = new BitmapDrawable(getResources(), tmpBitmap);
-        result.setBounds(0, 0, tmpBitmap.getWidth(), tmpBitmap.getHeight());
+        result.setBounds(0, 0, iconWidth, iconHeight);
         VisibleRecipientChip recipientChip =
                 new VisibleRecipientChip(result, contact);
         recipientChip.setExtraMargin(mLineSpacingExtra);
         // Return text to the original size.
         paint.setTextSize(defaultSize);
         paint.setColor(defaultColor);
+        // Put warning icon dimensions info in the chip
+        recipientChip.setWarningIconBounds(warningIconBounds);
         return recipientChip;
-    }
-
-    /**
-     * Calculate the bottom of the line the chip will be located on using:
-     * 1) which line the chip appears on
-     * 2) the height of a chip
-     * 3) padding built into the edit text view
-     */
-    private int calculateOffsetFromBottom(int line) {
-        // Line offsets start at zero.
-        int actualLine = getLineCount() - (line + 1);
-        return -((actualLine * ((int) mChipHeight) + getPaddingBottom()) + getPaddingTop())
-                + getDropDownVerticalOffset();
     }
 
     /**
@@ -1001,17 +1252,10 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
                 R.styleable.RecipientEditTextView_unselectedChipTextColor,
                 r.getColor(android.R.color.black));
 
-        mSelectedChipTextColor = a.getColor(
-                R.styleable.RecipientEditTextView_selectedChipTextColor,
-                r.getColor(android.R.color.white));
-
         mUnselectedChipBackgroundColor = a.getColor(
                 R.styleable.RecipientEditTextView_unselectedChipBackgroundColor,
                 r.getColor(R.color.chip_background));
 
-        mSelectedChipBackgroundColor = a.getColor(
-                R.styleable.RecipientEditTextView_selectedChipBackgroundColor,
-                r.getColor(R.color.chip_background_selected));
         a.recycle();
     }
 
@@ -1033,6 +1277,11 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
 
     public float getChipHeight() {
         return mChipHeight;
+    }
+
+    /** Returns whether view is in no-chip or chip mode. */
+    public boolean isNoChipMode() {
+        return mNoChipMode;
     }
 
     /**
@@ -1125,7 +1374,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
                 }
                 sanitizeEnd();
             } else {
-                mNoChips = true;
+                mNoChipMode = true;
             }
 
             if (mTemporaryRecipients != null && mTemporaryRecipients.size() > 0
@@ -1218,7 +1467,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         if (entry != null) {
             DrawableRecipientChip chip = null;
             try {
-                if (!mNoChips) {
+                if (!mNoChipMode) {
                     chip = visible ? constructChipSpan(entry) : new InvisibleRecipientChip(entry);
                 }
             } catch (NullPointerException e) {
@@ -1236,24 +1485,12 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         }
     }
 
-    private static boolean isPhoneNumber(String number) {
-        // TODO: replace this function with libphonenumber's isPossibleNumber (see
-        // PhoneNumberUtil). One complication is that it requires the sender's region which
-        // comes from the CurrentCountryIso. For now, let's just do this simple match.
-        if (TextUtils.isEmpty(number)) {
-            return false;
-        }
-
-        Matcher match = PHONE_PATTERN.matcher(number);
-        return match.matches();
-    }
-
     // VisibleForTesting
     RecipientEntry createTokenizedEntry(final String token) {
         if (TextUtils.isEmpty(token)) {
             return null;
         }
-        if (isPhoneQuery() && isPhoneNumber(token)) {
+        if (isPhoneQuery() && PhoneUtil.isPhoneNumber(token)) {
             return RecipientEntry.constructFakePhoneEntry(token, true);
         }
         Rfc822Token[] tokens = Rfc822Tokenizer.tokenize(token);
@@ -1428,20 +1665,19 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     }
 
     private boolean commitChip(int start, int end, Editable editable) {
-        ListAdapter adapter = getAdapter();
-        if (adapter != null && adapter.getCount() > 0 && enoughToFilter()
-                && end == getSelectionEnd() && !isPhoneQuery()) {
+        int position = positionOfFirstEntryWithTypePerson();
+        if (position != -1 && enoughToFilter()
+                && end == getSelectionEnd() && !isPhoneQuery()
+                && !isValidEmailAddress(editable.toString().substring(start, end).trim())) {
             // let's choose the selected or first entry if only the input text is NOT an email
             // address so we won't try to replace the user's potentially correct but
             // new/unencountered email input
-            if (!isValidEmailAddress(editable.toString().substring(start, end).trim())) {
-                final int selectedPosition = getListSelection();
-                if (selectedPosition == -1) {
-                    // Nothing is selected; use the first item
-                    submitItemAtPosition(0);
-                } else {
-                    submitItemAtPosition(selectedPosition);
-                }
+            final int selectedPosition = getListSelection();
+            if (selectedPosition == -1 || !isEntryAtPositionTypePerson(selectedPosition)) {
+                // Nothing is selected or selected item is not type person; use the first item
+                submitItemAtPosition(position);
+            } else {
+                submitItemAtPosition(selectedPosition);
             }
             dismissDropDown();
             return true;
@@ -1478,6 +1714,21 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         return false;
     }
 
+    private int positionOfFirstEntryWithTypePerson() {
+        ListAdapter adapter = getAdapter();
+        int itemCount = adapter != null ? adapter.getCount() : 0;
+        for (int i = 0; i < itemCount; i++) {
+            if (isEntryAtPositionTypePerson(i)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isEntryAtPositionTypePerson(int position) {
+        return getAdapter().getItem(position).getEntryType() == RecipientEntry.ENTRY_TYPE_PERSON;
+    }
+
     // Visible for testing.
     /* package */ void sanitizeBetween() {
         // Don't sanitize while we are waiting for content to chipify.
@@ -1512,11 +1763,11 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     }
 
     private boolean shouldCreateChip(int start, int end) {
-        return !mNoChips && hasFocus() && enoughToFilter() && !alreadyHasChip(start, end);
+        return !mNoChipMode && hasFocus() && enoughToFilter() && !alreadyHasChip(start, end);
     }
 
     private boolean alreadyHasChip(int start, int end) {
-        if (mNoChips) {
+        if (mNoChipMode) {
             return true;
         }
         DrawableRecipientChip[] chips =
@@ -1577,7 +1828,24 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
                 break;
         }
 
-        return super.onKeyDown(keyCode, event);
+        final DrawableRecipientChip lastRecipientChip = getLastChip();
+        boolean isHandled = super.onKeyDown(keyCode, event);
+
+        /*
+         * Hacky way to report a deleted chip:
+         * In some devices/configurations, {@link KeyEvent#KEYCODE_DEL} character is causing
+         * onKeyDown() to be called, which in turns handles the chip deletion instead of
+         * {@link RecipientTextWatcher#onTextChanged}. We want to call
+         * {@link RecipientChipDeletedListener#onRecipientChipDeleted} callback for these cases.
+         */
+        if (keyCode == KeyEvent.KEYCODE_DEL && isHandled && lastRecipientChip != null) {
+            final RecipientEntry entry = lastRecipientChip.getEntry();
+            if (!mNoChipMode && mRecipientChipDeletedListener != null && entry != null) {
+                mRecipientChipDeletedListener.onRecipientChipDeleted(entry);
+            }
+        }
+
+        return isHandled;
     }
 
     // Visible for testing.
@@ -1601,7 +1869,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
      * and makes sure that the range is not already a Chip.
      */
     @Override
-    protected void performFiltering(@NonNull CharSequence text, int keyCode) {
+    public void performFiltering(@NonNull CharSequence text, int keyCode) {
         boolean isCompletedToken = isCompletedToken(text);
         if (enoughToFilter() && !isCompletedToken) {
             int end = getSelectionEnd();
@@ -1660,21 +1928,44 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
      */
     @Override
     public boolean onTouchEvent(@NonNull MotionEvent event) {
-        if (!isFocused()) {
-            // Ignore any chip taps until this view is focused.
-            return super.onTouchEvent(event);
-        }
-        boolean handled = super.onTouchEvent(event);
+        boolean handled;
         int action = event.getAction();
-        boolean chipWasSelected = false;
-        if (mSelectedChip == null) {
-            mGestureDetector.onTouchEvent(event);
-        }
-        if (mCopyAddress == null && action == MotionEvent.ACTION_UP) {
-            float x = event.getX();
-            float y = event.getY();
-            int offset = putOffsetInRange(x, y);
-            DrawableRecipientChip currentChip = findChip(offset);
+        if (action == MotionEvent.ACTION_UP) {
+            final float x = event.getX();
+            final float y = event.getY();
+            final int offset = putOffsetInRange(x, y);
+            final DrawableRecipientChip currentChip = findChip(offset);
+
+            // Handle touching the warning icon
+            boolean touchedWarningIcon = false;
+            if (currentChip != null) {
+                Rect outOfDomainWarningBounds = currentChip.getWarningIconBounds();
+                if (outOfDomainWarningBounds != null) {
+                    final RectF touchOutOfDomainWarning = new RectF(
+                            outOfDomainWarningBounds.left,
+                            outOfDomainWarningBounds.top + getTotalPaddingTop(),
+                            outOfDomainWarningBounds.right,
+                            outOfDomainWarningBounds.bottom + getTotalPaddingTop());
+                    if (touchOutOfDomainWarning.contains(event.getX(), event.getY())) {
+                        String warningText = String.format(mWarningTextTemplate,
+                                currentChip.getEntry().getDestination());
+                        showWarningDialog(warningText);
+                        touchedWarningIcon = true;
+                    }
+                }
+            }
+            if (!isFocused()) {
+                // Ignore further chip taps until this view is focused.
+                return touchedWarningIcon || super.onTouchEvent(event);
+            }
+            handled = super.onTouchEvent(event);
+            if (mSelectedChip == null) {
+                mGestureDetector.onTouchEvent(event);
+            }
+            if (touchedWarningIcon) {
+                return true;
+            }
+            boolean chipWasSelected = false;
             if (currentChip != null) {
                 if (mSelectedChip != null && mSelectedChip != currentChip) {
                     clearSelectedChip();
@@ -1690,11 +1981,33 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
             } else if (mSelectedChip != null && shouldShowEditableText(mSelectedChip)) {
                 chipWasSelected = true;
             }
-        }
-        if (action == MotionEvent.ACTION_UP && !chipWasSelected) {
-            clearSelectedChip();
+            if (!chipWasSelected) {
+                clearSelectedChip();
+            }
+        } else {
+            handled = super.onTouchEvent(event);
+            if (!isFocused()) {
+                return handled;
+            }
+            if (mSelectedChip == null) {
+                mGestureDetector.onTouchEvent(event);
+            }
         }
         return handled;
+    }
+
+    private void showWarningDialog(String warningText) {
+        mCurrentWarningText = warningText;
+        new AlertDialog.Builder(RecipientEditTextView.this.getContext())
+                .setTitle(mWarningTitle)
+                .setOnDismissListener(new DialogInterface.OnDismissListener() {
+                    @Override
+                    public void onDismiss(DialogInterface dialog) {
+                        mCurrentWarningText = "";
+                    }
+                })
+                .setMessage(mCurrentWarningText)
+                .show();
     }
 
     private void showAlternates(final DrawableRecipientChip currentChip,
@@ -1737,11 +2050,11 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         }.execute((Void[]) null);
     }
 
-    private ListAdapter createAlternatesAdapter(DrawableRecipientChip chip) {
+    protected ListAdapter createAlternatesAdapter(DrawableRecipientChip chip) {
         return new RecipientAlternatesAdapter(getContext(), chip.getContactId(),
                 chip.getDirectoryId(), chip.getLookupKey(), chip.getDataId(),
                 getAdapter().getQueryType(), this, mDropdownChipLayouter,
-                constructStateListDeleteDrawable());
+                constructStateListDeleteDrawable(), getAdapter().getPermissionsCheckListener());
     }
 
     private ListAdapter createSingleAddressAdapter(DrawableRecipientChip currentChip) {
@@ -1841,7 +2154,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
             display = null;
         }
         String trimmedDisplayText;
-        if (isPhoneQuery() && isPhoneNumber(address)) {
+        if (isPhoneQuery() && PhoneUtil.isPhoneNumber(address)) {
             trimmedDisplayText = address.trim();
         } else {
             if (address != null) {
@@ -1886,7 +2199,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         // Always leave a blank space at the end of a chip.
         final int textLength = displayText.length() - 1;
         final SpannableString  chipText = new SpannableString(displayText);
-        if (!mNoChips) {
+        if (!mNoChipMode) {
             try {
                 DrawableRecipientChip chip = constructChipSpan(entry);
                 chipText.setSpan(chip, 0, textLength,
@@ -1905,7 +2218,11 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
      * A callback for subclasses to use to know when a chip was created with the
      * given RecipientEntry.
      */
-    protected void onChipCreated(RecipientEntry entry) {}
+    protected void onChipCreated(RecipientEntry entry) {
+        if (!mNoChipMode && mRecipientChipAddedListener != null) {
+            mRecipientChipAddedListener.onRecipientChipAdded(entry);
+        }
+    }
 
     /**
      * When an item in the suggestions list has been clicked, create a chip from the
@@ -1914,6 +2231,15 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     @Override
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
         if (position < 0) {
+            return;
+        }
+
+        final RecipientEntry entry = getAdapter().getItem(position);
+        if (entry.getEntryType() == RecipientEntry.ENTRY_TYPE_PERMISSION_REQUEST) {
+            if (mPermissionsRequestItemClickedListener != null) {
+                mPermissionsRequestItemClickedListener
+                        .onPermissionsRequestItemClicked(this, entry.getPermissions());
+            }
             return;
         }
 
@@ -2084,7 +2410,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
      */
     // Visible for testing.
     /* package */ void createMoreChip() {
-        if (mNoChips) {
+        if (mNoChipMode) {
             createMoreChipPlainText();
             return;
         }
@@ -2107,12 +2433,12 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         int numRecipients = recipients.length;
         int overage = numRecipients - CHIP_LIMIT;
         MoreImageSpan moreSpan = createMoreSpan(overage);
-        mRemovedSpans = new ArrayList<DrawableRecipientChip>();
+        mHiddenSpans = new ArrayList<DrawableRecipientChip>();
         int totalReplaceStart = 0;
         int totalReplaceEnd = 0;
         Editable text = getText();
         for (int i = numRecipients - overage; i < recipients.length; i++) {
-            mRemovedSpans.add(recipients[i]);
+            mHiddenSpans.add(recipients[i]);
             if (i == numRecipients - overage) {
                 totalReplaceStart = spannable.getSpanStart(recipients[i]);
             }
@@ -2151,9 +2477,9 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
             Spannable span = getSpannable();
             span.removeSpan(mMoreChip);
             mMoreChip = null;
-            // Re-add the spans that were removed.
-            if (mRemovedSpans != null && mRemovedSpans.size() > 0) {
-                // Recreate each removed span.
+            // Re-add the spans that were hidden.
+            if (mHiddenSpans != null && mHiddenSpans.size() > 0) {
+                // Recreate each hidden span.
                 DrawableRecipientChip[] recipients = getSortedRecipients();
                 // Start the search for tokens after the last currently visible
                 // chip.
@@ -2162,13 +2488,13 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
                 }
                 int end = span.getSpanEnd(recipients[recipients.length - 1]);
                 Editable editable = getText();
-                for (DrawableRecipientChip chip : mRemovedSpans) {
+                for (DrawableRecipientChip chip : mHiddenSpans) {
                     int chipStart;
                     int chipEnd;
                     String token;
                     // Need to find the location of the chip, again.
                     token = (String) chip.getOriginalText();
-                    // As we find the matching recipient for the remove spans,
+                    // As we find the matching recipient for the hidden spans,
                     // reduce the size of the string we need to search.
                     // That way, if there are duplicates, we always find the correct
                     // recipient.
@@ -2180,7 +2506,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
                                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
                     }
                 }
-                mRemovedSpans.clear();
+                mHiddenSpans.clear();
             }
         }
     }
@@ -2212,13 +2538,30 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
             editable.append(text);
             mSelectedChip = constructChipSpan(
                     RecipientEntry.constructFakeEntry((String) text, isValid(text.toString())));
+
+            /*
+             * Because chip is destroyed and converted into an editable text, we call
+             * {@link RecipientChipDeletedListener#onRecipientChipDeleted}. For the cases where
+             * editable text is not shown (i.e. chip is in user's contact list), chip is focused
+             * and below callback is not called.
+             */
+            if (!mNoChipMode && mRecipientChipDeletedListener != null) {
+                mRecipientChipDeletedListener.onRecipientChipDeleted(currentChip.getEntry());
+            }
         } else {
             final boolean showAddress =
                     currentChip.getContactId() == RecipientEntry.GENERATED_CONTACT ||
                     getAdapter().forceShowAddress();
-            if (showAddress && mNoChips) {
+            if (showAddress && mNoChipMode) {
                 return;
             }
+
+            if (isTouchExplorationEnabled()) {
+                // The chips cannot be touch-explored. However, doing a double-tap results in
+                // the popup being shown for the last chip, which is of no value.
+                return;
+            }
+
             mSelectedChip = currentChip;
             setSelection(getText().getSpanEnd(mSelectedChip));
             setCursorVisible(false);
@@ -2229,6 +2572,16 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
                 showAlternates(currentChip, mAlternatesPopup);
             }
         }
+    }
+
+    private boolean isTouchExplorationEnabled() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
+            return false;
+        }
+
+        final AccessibilityManager accessibilityManager = (AccessibilityManager)
+                getContext().getSystemService(Context.ACCESSIBILITY_SERVICE);
+        return accessibilityManager.isTouchExplorationEnabled();
     }
 
     private boolean shouldShowEditableText(DrawableRecipientChip currentChip) {
@@ -2280,7 +2633,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
             QwertyKeyListener.markAsReplaced(editable, start, end, "");
             editable.removeSpan(chip);
             try {
-                if (!mNoChips) {
+                if (!mNoChipMode) {
                     editable.setSpan(constructChipSpan(chip.getEntry()),
                             start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 }
@@ -2298,9 +2651,20 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     @Override
     public void onChipDelete() {
         if (mSelectedChip != null) {
+            if (!mNoChipMode && mRecipientChipDeletedListener != null) {
+                mRecipientChipDeletedListener.onRecipientChipDeleted(mSelectedChip.getEntry());
+            }
             removeChip(mSelectedChip);
         }
         dismissPopups();
+    }
+
+    @Override
+    public void onPermissionRequestDismissed() {
+        if (mPermissionsRequestItemClickedListener != null) {
+            mPermissionsRequestItemClickedListener.onPermissionRequestDismissed();
+        }
+        dismissDropDown();
     }
 
     private void dismissPopups() {
@@ -2355,6 +2719,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         int end = getChipEnd(chip);
         getSpannable().removeSpan(chip);
         Editable editable = getText();
+        entry.setInReplacedChip(true);
         CharSequence chipText = createChip(entry);
         if (chipText != null) {
             if (start == -1 || end == -1) {
@@ -2391,7 +2756,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     }
 
     private boolean chipsPending() {
-        return mPendingChipsCount > 0 || (mRemovedSpans != null && mRemovedSpans.size() > 0);
+        return mPendingChipsCount > 0 || (mHiddenSpans != null && mHiddenSpans.size() > 0);
     }
 
     @Override
@@ -2493,6 +2858,9 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
                     if (deleteEnd > editable.length()) {
                         deleteEnd = editable.length();
                     }
+                    if (!mNoChipMode && mRecipientChipDeletedListener != null) {
+                        mRecipientChipDeletedListener.onRecipientChipDeleted(toDelete.getEntry());
+                    }
                     editable.removeSpan(toDelete);
                     editable.delete(deleteStart, deleteEnd);
                 }
@@ -2513,7 +2881,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         }
     }
 
-   public boolean lastCharacterIsCommitCharacter(CharSequence s) {
+    public boolean lastCharacterIsCommitCharacter(CharSequence s) {
         char last;
         int end = getSelectionEnd() == 0 ? 0 : getSelectionEnd() - 1;
         int len = length() - 1;
@@ -2542,8 +2910,8 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         }
 
         final ClipDescription clipDesc = clip.getDescription();
-        boolean containsSupportedType = clipDesc.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) ||
-                clipDesc.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML);
+        boolean containsSupportedType = clipDesc.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)
+                || clipDesc.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML);
         if (!containsSupportedType) {
             return;
         }
@@ -2553,8 +2921,8 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         final ClipDescription clipDescription = clip.getDescription();
         for (int i = 0; i < clip.getItemCount(); i++) {
             final String mimeType = clipDescription.getMimeType(i);
-            final boolean supportedType = ClipDescription.MIMETYPE_TEXT_PLAIN.equals(mimeType) ||
-                    ClipDescription.MIMETYPE_TEXT_HTML.equals(mimeType);
+            final boolean supportedType = ClipDescription.MIMETYPE_TEXT_PLAIN.equals(mimeType)
+                    || ClipDescription.MIMETYPE_TEXT_HTML.equals(mimeType);
             if (!supportedType) {
                 // Only plain text and html can be pasted.
                 continue;
@@ -2671,7 +3039,7 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     private class RecipientReplacementTask extends AsyncTask<Void, Void, Void> {
         private DrawableRecipientChip createFreeChip(RecipientEntry entry) {
             try {
-                if (mNoChips) {
+                if (mNoChipMode) {
                     return null;
                 }
                 return constructChipSpan(entry);
@@ -2689,8 +3057,8 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
                     new ArrayList<DrawableRecipientChip>();
             final DrawableRecipientChip[] existingChips = getSortedRecipients();
             Collections.addAll(originalRecipients, existingChips);
-            if (mRemovedSpans != null) {
-                originalRecipients.addAll(mRemovedSpans);
+            if (mHiddenSpans != null) {
+                originalRecipients.addAll(mHiddenSpans);
             }
 
             final List<DrawableRecipientChip> replacements =
@@ -2720,8 +3088,8 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
                     new ArrayList<DrawableRecipientChip>();
             DrawableRecipientChip[] existingChips = getSortedRecipients();
             Collections.addAll(recipients, existingChips);
-            if (mRemovedSpans != null) {
-                recipients.addAll(mRemovedSpans);
+            if (mHiddenSpans != null) {
+                recipients.addAll(mHiddenSpans);
             }
             ArrayList<String> addresses = new ArrayList<String>();
             for (DrawableRecipientChip chip : recipients) {
@@ -3030,26 +3398,13 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     }
 
     private void showCopyDialog(final String address) {
-        if (!mAttachedToWindow) {
+        final Context context = getContext();
+        if (!mAttachedToWindow || context == null || !(context instanceof Activity)) {
             return;
         }
-        mCopyAddress = address;
-        mCopyDialog.setTitle(address);
-        mCopyDialog.setContentView(R.layout.copy_chip_dialog_layout);
-        mCopyDialog.setCancelable(true);
-        mCopyDialog.setCanceledOnTouchOutside(true);
-        Button button = (Button)mCopyDialog.findViewById(android.R.id.button1);
-        button.setOnClickListener(this);
-        int btnTitleId;
-        if (isPhoneQuery()) {
-            btnTitleId = R.string.copy_number;
-        } else {
-            btnTitleId = R.string.copy_email;
-        }
-        String buttonTitle = getContext().getResources().getString(btnTitleId);
-        button.setText(buttonTitle);
-        mCopyDialog.setOnDismissListener(this);
-        mCopyDialog.show();
+
+        final DialogFragment fragment = CopyDialog.newInstance(address);
+        fragment.show(((Activity) context).getFragmentManager(), CopyDialog.TAG);
     }
 
     @Override
@@ -3067,20 +3422,6 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
     public boolean onSingleTapUp(MotionEvent e) {
         // Do nothing.
         return false;
-    }
-
-    @Override
-    public void onDismiss(DialogInterface dialog) {
-        mCopyAddress = null;
-    }
-
-    @Override
-    public void onClick(View v) {
-        // Copy this to the clipboard.
-        ClipboardManager clipboard = (ClipboardManager) getContext().getSystemService(
-                Context.CLIPBOARD_SERVICE);
-        clipboard.setPrimaryClip(ClipData.newPlainText("", mCopyAddress));
-        mCopyDialog.dismiss();
     }
 
     protected boolean isPhoneQuery() {
@@ -3156,5 +3497,10 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
         float top;
         float right;
         float bottom;
+        // information used for positioning the warning icon
+        float warningIconLeft;
+        float warningIconTop;
+        float warningIconRight;
+        float warningIconBottom;
     }
 }

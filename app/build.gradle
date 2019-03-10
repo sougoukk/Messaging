@@ -2,6 +2,9 @@ apply plugin: 'com.android.application'
 
 android {
     compileSdkVersion 25
+    lintOptions {
+        disable 'ExpiredTargetSdkVersion'
+    }
     defaultConfig {
         applicationId "aos.andro.messaging"
         minSdkVersion 19

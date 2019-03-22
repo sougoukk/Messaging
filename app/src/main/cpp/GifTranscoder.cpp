@@ -24,7 +24,7 @@
 
 #include "GifTranscoder.h"
 
-#define SQUARE(a) (a)*(a)
+#define SQUARE(a) ((a)*(a))
 
 // GIF does not support partial transparency, so our alpha channels are always 0x0 or 0xff.
 static const ColorARGB TRANSPARENT = 0x0;
@@ -37,7 +37,7 @@ static const ColorARGB TRANSPARENT = 0x0;
 #define MAKE_COLOR_ARGB(a, r, g, b) \
     ((a) << 24 | (r) << 16 | (g) << 8 | (b))
 
-#define MAX_COLOR_DISTANCE 255 * 255 * 255
+#define MAX_COLOR_DISTANCE (255 * 255 * 255)
 
 #define TAG "GifTranscoder.cpp"
 #define LOGD_ENABLED 0
@@ -60,18 +60,18 @@ static const ColorARGB TRANSPARENT = 0x0;
 namespace {
 
 // Current time in milliseconds since Unix epoch.
-    double now(void) {
-        struct timespec res;
-        clock_gettime(CLOCK_REALTIME, &res);
-        return 1000.0 * res.tv_sec + (double) res.tv_nsec / 1e6;
-    }
+double now(void) {
+    struct timespec res;
+    clock_gettime(CLOCK_REALTIME, &res);
+    return 1000.0 * res.tv_sec + (double) res.tv_nsec / 1e6;
+}
 
 // Gets the pixel at position (x,y) from a buffer that uses row-major order to store an image with
 // the specified width.
-    template <typename T>
-    T* getPixel(T* buffer, int width, int x, int y) {
-        return buffer + (y * width + x);
-    }
+template <typename T>
+T* getPixel(T* buffer, int width, int x, int y) {
+    return buffer + (y * width + x);
+}
 
 } // namespace
 
@@ -175,9 +175,9 @@ bool GifTranscoder::resizeBoxFilter(GifFileType* gifIn, GifFileType* gifOut) {
 
                 // Sanity-check the current image position.
                 if (gifIn->Image.Left < 0 ||
-                    gifIn->Image.Top < 0 ||
-                    gifIn->Image.Left + gifIn->Image.Width > gifIn->SWidth ||
-                    gifIn->Image.Top + gifIn->Image.Height > gifIn->SHeight) {
+                        gifIn->Image.Top < 0 ||
+                        gifIn->Image.Left + gifIn->Image.Width > gifIn->SWidth ||
+                        gifIn->Image.Top + gifIn->Image.Height > gifIn->SHeight) {
                     LOGE("GIF image extends beyond logical screen");
                     return false;
                 }
@@ -220,9 +220,9 @@ bool GifTranscoder::resizeBoxFilter(GifFileType* gifIn, GifFileType* gifOut) {
                 // Generate the image in the output GIF.
                 for (int y = 0; y < gifOut->SHeight; y++) {
                     for (int x = 0; x < gifOut->SWidth; x++) {
-                        const GifByteType dstColorIndex = computeNewColorIndex(
-                                gifIn, transparentColor, renderBuffer.get(), x, y);
-                        *(dstRowBuffer.get() + x) = dstColorIndex;
+                      const GifByteType dstColorIndex = computeNewColorIndex(
+                          gifIn, transparentColor, renderBuffer.get(), x, y);
+                      *(dstRowBuffer.get() + x) = dstColorIndex;
                     }
                     if (EGifPutLine(gifOut, dstRowBuffer.get(), gifOut->SWidth) == GIF_ERROR) {
                         LOGE("Could not write raster data (%d)", imageIndex);
@@ -386,7 +386,7 @@ bool GifTranscoder::renderImage(GifFileType* gifIn,
             GifByteType colorIndex = *getPixel(rasterBits, gifIn->Image.Width, x, y);
             if (colorIndex >= colorMap->ColorCount) {
                 LOGE("Color Index %d is out of bounds (count=%d)", colorIndex,
-                     colorMap->ColorCount);
+                    colorMap->ColorCount);
                 return false;
             }
 
@@ -577,7 +577,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     }
     if (!registerNativeMethods(env, kClassPathName,
                                kMethods, sizeof(kMethods) / sizeof(kMethods[0]))) {
-        return -1;
+      return -1;
     }
     return JNI_VERSION_1_6;
 }

@@ -22,6 +22,12 @@ allprojects {
     }
 }
 
+ext {
+    sdkVersion = 26
+    supportLibVersion = "26.1.0"
+    verName = "8.0.0_r36"
+}
+
 task clean(type: Delete) {
     delete rootProject.buildDir
 }

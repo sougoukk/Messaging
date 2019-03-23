@@ -1,15 +1,15 @@
 apply plugin: 'com.android.library'
 
 android {
-    compileSdkVersion 25
+    compileSdkVersion rootProject.ext.sdkVersion
 
 
 
     defaultConfig {
         minSdkVersion 19
-        targetSdkVersion 25
+        targetSdkVersion rootProject.ext.sdkVersion
         versionCode 3
-        versionName "8.0.0_r36"
+        versionName rootProject.ext.verName
 
         externalNativeBuild {
 
@@ -24,7 +24,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            // proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     externalNativeBuild {

@@ -36,7 +36,7 @@ public final class Assert {
     // The proguard rules will strip this method out on user/userdebug builds.
     // If you change the method signature you MUST edit proguard-release.flags.
     private static void setIfEngBuild() {
-        sShouldCrash = sIsEngBuild = true;
+        sShouldCrash = sIsEngBuild = false;
     }
 
     private static void refreshGservices(final BugleGservices gservices) {

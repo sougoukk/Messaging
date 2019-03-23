@@ -1,7 +1,8 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 25
+
+    compileSdkVersion rootProject.ext.sdkVersion
 
     lintOptions {
         disable 'ResAuto', 'MissingDefaultResource'
@@ -10,9 +11,9 @@ android {
     defaultConfig {
         applicationId "aos.andro.messaging"
         minSdkVersion 19
-        targetSdkVersion 25
+        targetSdkVersion rootProject.ext.sdkVersion
         versionCode 3
-        versionName "8.0.0_r36"
+        versionName rootProject.ext.verName
 
         externalNativeBuild {
             cmake {
@@ -24,7 +25,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            // proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     externalNativeBuild {
@@ -37,11 +38,11 @@ android {
 dependencies {
     implementation project(':common')
     implementation project(':commonframesequence')
-    implementation 'com.android.support:support-v4:25.4.0'
-    implementation 'com.android.support:appcompat-v7:25.4.0'
-    implementation 'com.android.support:palette-v7:25.4.0'
-    implementation 'com.android.support:recyclerview-v7:25.4.0'
-    implementation 'com.android.support:support-v13:25.4.0'
+    implementation "com.android.support:support-v4:${rootProject.ext.supportLibVersion}"
+    implementation "com.android.support:appcompat-v7:${rootProject.ext.supportLibVersion}"
+    implementation "com.android.support:palette-v7:${rootProject.ext.supportLibVersion}"
+    implementation "com.android.support:recyclerview-v7:${rootProject.ext.supportLibVersion}"
+    implementation "com.android.support:support-v13:${rootProject.ext.supportLibVersion}"
     implementation project(':vcard')
     api 'com.google.guava:guava:27.0.1-android'
     implementation project(':chips')

@@ -23,11 +23,6 @@
 
 #define GIF_DEBUG 0
 
-// These constants are chosen to imitate common browser behavior
-// Note that 0 delay is undefined behavior in the gif standard
-static const long MIN_DELAY_MS = 20;
-static const long DEFAULT_DELAY_MS = 100;
-
 static int streamReader(GifFileType* fileType, GifByteType* out, int size) {
     Stream* stream = (Stream*) fileType->UserData;
     return (int) stream->read(out, size);
@@ -38,11 +33,7 @@ static Color8888 gifColorToColor8888(const GifColorType& color) {
 }
 
 static long getDelayMs(GraphicsControlBlock& gcb) {
-    long delayMs = gcb.DelayTime * 10;
-    if (delayMs < MIN_DELAY_MS) {
-        return DEFAULT_DELAY_MS;
-    }
-    return delayMs;
+    return gcb.DelayTime * 10;
 }
 
 static bool willBeCleared(const GraphicsControlBlock& gcb) {
@@ -120,12 +111,14 @@ FrameSequence_gif::FrameSequence_gif(Stream* stream) :
     }
 #endif
 
-    if (mGif->SColorMap) {
+    const ColorMapObject* cmap = mGif->SColorMap;
+    if (cmap) {
         // calculate bg color
         GraphicsControlBlock gcb;
         DGifSavedExtensionToGCB(mGif, 0, &gcb);
-        if (gcb.TransparentColor == NO_TRANSPARENT_COLOR) {
-            mBgColor = gifColorToColor8888(mGif->SColorMap->Colors[mGif->SBackGroundColor]);
+        if (gcb.TransparentColor == NO_TRANSPARENT_COLOR
+                && mGif->SBackGroundColor < cmap->ColorCount) {
+            mBgColor = gifColorToColor8888(cmap->Colors[mGif->SBackGroundColor]);
         }
     }
 }
@@ -316,19 +309,18 @@ long FrameSequenceState_gif::drawFrame(int frameNr,
                 cmap = frame.ImageDesc.ColorMap;
             }
 
-            if (cmap == NULL || cmap->ColorCount != (1 << cmap->BitsPerPixel)) {
-                ALOGW("Warning: potentially corrupt color map");
-            }
-
-            const unsigned char* src = (unsigned char*)frame.RasterBits;
-            Color8888* dst = outputPtr + frame.ImageDesc.Left +
-                    frame.ImageDesc.Top * outputPixelStride;
-            GifWord copyWidth, copyHeight;
-            getCopySize(frame.ImageDesc, width, height, copyWidth, copyHeight);
-            for (; copyHeight > 0; copyHeight--) {
-                copyLine(dst, src, cmap, gcb.TransparentColor, copyWidth);
-                src += frame.ImageDesc.Width;
-                dst += outputPixelStride;
+            // If a cmap is missing, the frame can't be decoded, so we skip it.
+            if (cmap) {
+                const unsigned char* src = (unsigned char*)frame.RasterBits;
+                Color8888* dst = outputPtr + frame.ImageDesc.Left +
+                        frame.ImageDesc.Top * outputPixelStride;
+                GifWord copyWidth, copyHeight;
+                getCopySize(frame.ImageDesc, width, height, copyWidth, copyHeight);
+                for (; copyHeight > 0; copyHeight--) {
+                    copyLine(dst, src, cmap, gcb.TransparentColor, copyWidth);
+                    src += frame.ImageDesc.Width;
+                    dst += outputPixelStride;
+                }
             }
         }
     }
@@ -368,4 +360,3 @@ static RegistryEntry gEntry = {
         acceptsBuffers,
 };
 static Registry gRegister(gEntry);
-

@@ -12,7 +12,7 @@ android {
         applicationId "aos.andro.messaging"
         minSdkVersion 19
         targetSdkVersion rootProject.ext.sdkVersion
-        versionCode 3
+        versionCode rootProject.ext.verCode
         versionName rootProject.ext.verName
 
         externalNativeBuild {

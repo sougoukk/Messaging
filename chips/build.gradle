@@ -8,7 +8,7 @@ android {
     defaultConfig {
         minSdkVersion 19
         targetSdkVersion rootProject.ext.sdkVersion
-        versionCode 3
+        versionCode rootProject.ext.verCode
         versionName rootProject.ext.verName
 
     }
@@ -24,5 +24,6 @@ android {
 
 dependencies {
     implementation "com.android.support:support-compat:${rootProject.ext.supportLibVersion}"
+    implementation "com.android.support:support-annotations:${rootProject.ext.supportLibVersion}"
     testImplementation 'junit:junit:4.12'
 }

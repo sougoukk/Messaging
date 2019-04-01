@@ -28,7 +28,9 @@ import android.widget.TextView;
 
 import com.android.messaging.Factory;
 import com.android.messaging.R;
+import com.android.messaging.util.ChangeDefaultSmsAppHelper;
 import com.android.messaging.util.OsUtil;
+import com.android.messaging.util.PhoneUtils;
 import com.android.messaging.util.UiUtils;
 
 /**
@@ -90,6 +92,15 @@ public class PermissionCheckActivity extends Activity {
     }
 
     private void tryRequestPermission() {
+        if (!PhoneUtils.getDefault().isDefaultSmsApp()) {
+            new ChangeDefaultSmsAppHelper().warnOfMissingActionConditions(false,
+                    null, null,
+                    null,
+                    this, null);
+            if (!PhoneUtils.getDefault().isDefaultSmsApp())
+                return;
+        }
+
         final String[] missingPermissions = OsUtil.getMissingRequiredPermissions();
         if (missingPermissions.length == 0) {
             redirect();
@@ -126,7 +137,7 @@ public class PermissionCheckActivity extends Activity {
 
     /** Returns true if the redirecting was performed */
     private boolean redirectIfNeeded() {
-        if (!OsUtil.hasRequiredPermissions()) {
+        if (!OsUtil.hasRequiredPermissions() || !PhoneUtils.getDefault().isDefaultSmsApp()) {
             return false;
         }
 

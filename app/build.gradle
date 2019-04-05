@@ -14,6 +14,7 @@ android {
         targetSdkVersion rootProject.ext.sdkVersion
         versionCode rootProject.ext.verCode
         versionName rootProject.ext.verName
+        versionNameSuffix rootProject.ext.verNameSuffix
 
         externalNativeBuild {
             cmake {

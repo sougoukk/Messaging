@@ -26,7 +26,8 @@ ext {
     sdkVersion = 27
     supportLibVersion = "27.1.1"
     verName = "8.1.0_r62"
-    verCode = 5
+    verCode = 6
+    verNameSuffix = "-M1"
 }
 
 task clean(type: Delete) {

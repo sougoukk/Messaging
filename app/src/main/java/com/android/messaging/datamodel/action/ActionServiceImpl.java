@@ -236,10 +236,18 @@ public class ActionServiceImpl extends IntentService {
         // memory (in total around 1MB). See this article for background
         // http://developer.android.com/reference/android/os/TransactionTooLargeException.html
         // Perhaps we should keep large structures in the action monitor?
-        if (context.startService(intent) == null) {
-            LogUtil.e(TAG,
-                    "ActionService.startServiceWithIntent: failed to start service for intent "
-                    + intent);
+        try {
+            if (context.startService(intent) == null) {
+                LogUtil.e(TAG,
+                        "ActionService.startServiceWithIntent: failed to start service for intent "
+                                + intent);
+                sWakeLock.release(intent, opcode);
+            }
+        }
+        catch (java.lang.IllegalStateException e) {
+            LogUtil.w(TAG,
+                    "ActionService.startServiceWithIntent: IllegalStateException was thrown for intent "
+                            + intent);
             sWakeLock.release(intent, opcode);
         }
     }
